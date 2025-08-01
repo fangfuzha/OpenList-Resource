@@ -243,7 +243,6 @@ backup_config() {
 
     if [ ! -d "$INSTALL_PATH/data" ]; then
         echo -e "${RED_COLOR}错误：未找到配置目录${RES}"
-        read -p "按 Enter 继续..."
         return 1
     fi
 
@@ -262,7 +261,6 @@ backup_config() {
         return 1
     fi
 
-    read -p "按Enter键继续..."
     return 0
 }
 
@@ -274,7 +272,6 @@ restore_config() {
     local backup_base_dir="/opt/openlist_backups"
     if [ ! -d "$backup_base_dir" ]; then
         echo -e "${RED_COLOR}错误：未找到备份目录 $backup_base_dir${RES}"
-        read -p "按Enter键继续..."
         return 1
     fi
 
@@ -293,7 +290,6 @@ restore_config() {
 
     if [ $backup_count -eq 0 ]; then
         echo -e "${RED_COLOR}未找到任何备份${RES}"
-        read -p "按Enter继续..."
         return 1
     fi
 
@@ -308,13 +304,11 @@ restore_config() {
         backup_path="${backup_list[$((choice-1))]}"
     else
         echo -e "${RED_COLOR}无效的选择${RES}"
-        read -p "按Enter键继续..."
         return 1
     fi
 
     if [ ! -d "$backup_path/data" ]; then
         echo -e "${RED_COLOR}错误：备份目录不存在或无效${RES}"
-        read -p "按Enter键继续..."
         return 1
     fi
 
@@ -340,8 +334,6 @@ restore_config() {
             echo -e "${YELLOW_COLOR}已取消恢复${RES}"
             ;;
     esac
-
-    read -p "按 Enter 键继续..."
 }
 
 
@@ -633,8 +625,6 @@ check_system_status() {
     fi
 
     echo
-    read -p "按下 Enter 返回主菜单..." -n 1
-    echo
 }
 
 # Download
@@ -920,8 +910,6 @@ UPDATE() {
     echo -e "${GREEN_COLOR}当前版本：${RES}$version_info"
     echo -e "${GREEN_COLOR}更新时间：${RES}$(date '+%Y-%m-%d %H:%M:%S')"
     echo
-    read -p "按下 Enter 返回主菜单..." -n 1
-    echo
 }
 
 UNINSTALL() {
@@ -1204,8 +1192,6 @@ SHOW_ABOUT() {
     echo
     echo -e "${YELLOW_COLOR}感谢使用 OpenList 管理脚本！${RES}"
     echo
-    read -p "按下 Enter 返回主菜单..." -n 1
-    echo
 }
 
 INSTALL_CLI() {
@@ -1485,11 +1471,7 @@ if [ $# -eq 0 ]; then
   while true; do
     SHOW_MENU
     echo
-    if [ $? -eq 0 ]; then
-      sleep 1  # 成功
-    else
-      sleep 2  # FAIL
-    fi
+    read -s -n1 -p "按任意键继续 ... "
     clear
   done
 elif [ "$1" = "install" ]; then
