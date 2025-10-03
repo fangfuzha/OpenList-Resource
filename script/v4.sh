@@ -835,6 +835,18 @@ UPDATE() {
     # 获取真实版本信息
     echo -e "${GREEN_COLOR}获取版本信息...${RES}"
     REAL_VERSION=$(curl -s "https://api.github.com/repos/OpenListTeam/OpenList/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' 2>/dev/null || echo "$VERSION_TAG")
+
+    # 检查当前版本
+    CURRENT_VERSION=""
+    if [ -f "$VERSION_FILE" ]; then
+        CURRENT_VERSION=$(head -n1 "$VERSION_FILE" 2>/dev/null)
+    fi
+
+    if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" = "$REAL_VERSION" ]; then
+        echo -e "${GREEN_COLOR}当前已是最新版本 ($CURRENT_VERSION)，无需更新${RES}"
+        return 0
+    fi
+
     GH_DOWNLOAD_URL="${GH_DOWNLOAD_URL}/${REAL_VERSION}"
 
     # 停止 OpenList 服务
