@@ -657,6 +657,43 @@ download_file() {
     return 1
 }
 
+# 获取最新版本号，优先使用 GitHub API，失败时返回备用版本号
+get_latest_version() {
+    local proxy_prefix="$1"   # 代理前缀，可为空
+    local fallback_version="${2:-$VERSION_TAG}"  # 备用版本号
+    local api_url="https://api.github.com/repos/OpenListTeam/OpenList/releases/latest"
+
+    if [ -n "$proxy_prefix" ]; then
+        api_url="${proxy_prefix}https://api.github.com/repos/OpenListTeam/OpenList/releases/latest"
+    fi
+
+    local latest_version
+    latest_version=$(curl -s "$api_url" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' 2>/dev/null)
+
+    if [ -z "$latest_version" ]; then
+        echo -e "${YELLOW_COLOR}⚠ 无法从 GitHub 获取最新版本信息。${RES}"
+        local answer
+        while true; do
+            read -p "是否使用备用版本号 ${fallback_version}? (Y/n): " answer
+            case "${answer}" in
+                ""|"Y"|"y" )
+                    latest_version="$fallback_version"
+                    break
+                    ;;
+                "N"|"n" )
+                    echo -e "${RED_COLOR}已取消使用备用版本号，操作终止。${RES}"
+                    return 1
+                    ;;
+                * )
+                    echo -e "${YELLOW_COLOR}请输入 Y 或 N。${RES}"
+                    ;;
+            esac
+        done
+    fi
+
+    echo "$latest_version"
+}
+
 INSTALL() {
   # 保存当前目录
   CURRENT_DIR=$(pwd)
@@ -675,12 +712,16 @@ INSTALL() {
   else
     # 如果不需要代理，直接使用默认链接
     GH_DOWNLOAD_URL="https://github.com/OpenListTeam/OpenList/releases/download"
+        GH_PROXY=""
     echo -e "${GREEN_COLOR}使用默认 GitHub 地址进行下载${RES}"
   fi
 
-  # 获取版本号
-  echo -e "${GREEN_COLOR}获取版本信息...${RES}"
-  REAL_VERSION=$(curl -s "https://api.github.com/repos/OpenListTeam/OpenList/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' 2>/dev/null || echo "$VERSION_TAG")
+  # 获取最新版本号
+  echo -e "${GREEN_COLOR}获取最新版本信息...${RES}"
+    if ! REAL_VERSION=$(get_latest_version "$GH_PROXY"); then
+        echo -e "${RED_COLOR}获取最新版本信息失败，安装已取消。${RES}"
+        exit 1
+    fi
   GH_DOWNLOAD_URL="${GH_DOWNLOAD_URL}/${REAL_VERSION}"
 
   # 下载 OpenList 程序
@@ -768,7 +809,7 @@ SUCCESS() {
 
   PUBLIC_IP=$(curl -s4 --connect-timeout 5 ip.sb 2>/dev/null || curl -s4 --connect-timeout 5 ifconfig.me 2>/dev/null)
 
-  # 获取版本信息
+  # 获取本地版本信息
   local version_info="UNKNOWN"
   if [ -f "$VERSION_FILE" ]; then
     version_info=$(head -n1 "$VERSION_FILE" 2>/dev/null)
@@ -829,12 +870,16 @@ UPDATE() {
     else
         # 如果不需要代理，直接使用默认链接
         GH_DOWNLOAD_URL="https://github.com/OpenListTeam/OpenList/releases/download"
+        GH_PROXY=""
         echo -e "${GREEN_COLOR}使用默认 GitHub 地址进行下载${RES}"
     fi
 
-    # 获取真实版本信息
-    echo -e "${GREEN_COLOR}获取版本信息...${RES}"
-    REAL_VERSION=$(curl -s "https://api.github.com/repos/OpenListTeam/OpenList/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' 2>/dev/null || echo "$VERSION_TAG")
+    # 获取最新版本信息
+    echo -e "${GREEN_COLOR}获取最新版本信息...${RES}"
+    if ! REAL_VERSION=$(get_latest_version "$GH_PROXY"); then
+        echo -e "${RED_COLOR}获取最新版本信息失败，已取消更新。${RES}"
+        return 1
+    fi
 
     # 检查当前版本
     CURRENT_VERSION=""
@@ -842,9 +887,16 @@ UPDATE() {
         CURRENT_VERSION=$(head -n1 "$VERSION_FILE" 2>/dev/null)
     fi
 
-    if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" = "$REAL_VERSION" ]; then
-        echo -e "${GREEN_COLOR}当前已是最新版本 ($CURRENT_VERSION)，无需更新${RES}"
-        return 0
+    # 版本对比，支持强制更新
+    if [ -n "$CURRENT_VERSION" ] && [ -n "$REAL_VERSION" ] && [ "$CURRENT_VERSION" = "$REAL_VERSION" ]; then
+        echo -e "${YELLOW_COLOR}当前检测到最新版本为 ${RES}${CURRENT_VERSION}${YELLOW_COLOR}，与本地一致。${RES}"
+        read -r -p "是否强制重新下载并更新？[y/N]: " force_update
+        force_update=${force_update:-N}
+        if [[ ! "$force_update" =~ ^([yY][eE][sS]?|[yY])$ ]]; then
+            echo -e "${GREEN_COLOR}已取消更新，维持当前版本${RES}"
+            return 0
+        fi
+        echo -e "${GREEN_COLOR}将按照指示强制更新${RES}"
     fi
 
     GH_DOWNLOAD_URL="${GH_DOWNLOAD_URL}/${REAL_VERSION}"
