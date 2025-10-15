@@ -88,15 +88,22 @@ check_disk_space() {
             echo -e "临时目录可用空间: $tmp_space"
             echo -e "安装目录可用空间: $install_space"
             echo -e "${YELLOW_COLOR}建议清理系统空间后再继续${RES}"
-            read -p "是否继续？[y/N]: " continue_choice
-            case "$continue_choice" in
-                [yY])
-                    return 0
-                    ;;
-                *)
-                    exit 1
-                    ;;
-            esac
+                # 如果是非交互（后台/cron）模式，直接返回失败以避免阻塞
+                if [ ! -t 0 ]; then
+                    echo -e "${YELLOW_COLOR}非交互模式：检测到可用空间不足，自动退出以避免阻塞${RES}"
+                    return 1
+                fi
+
+                # 交互模式才提示用户继续
+                read -p "是否继续？[y/N]: " continue_choice
+                case "$continue_choice" in
+                    [yY])
+                        return 0
+                        ;;
+                    *)
+                        exit 1
+                        ;;
+                esac
         fi
     fi
 }
@@ -533,15 +540,27 @@ setup_auto_update() {
             echo -e "${YELLOW_COLOR}默认：每周日凌晨2点 (0 2 * * 0)${RES}"
             echo -e "${YELLOW_COLOR}示例：每天凌晨3点 (0 3 * * *)${RES}"
             read -p "请输入 cron 时间表达式 (默认: 0 2 * * 0): " cron_time
-
             if [ -z "$cron_time" ]; then
                 cron_time="0 2 * * 0"
             fi
 
+            # 询问是否使用 GitHub 代理（可选），并保存在 crontab 环境中
+            echo -e "${GREEN_COLOR}是否为定时更新设置 GitHub 代理？（可选，直接按 Enter 跳过）${RES}"
+            echo -e "${GREEN_COLOR}示例：https://ghproxy.com/ 或 https://ghproxy.net/ ${RES}"
+            read -p "请输入代理地址或直接按 Enter: " cron_gh_proxy
+
             SCRIPT_PATH=$(readlink -f "$0")
 
-            # 添加到 crontab
-            (crontab -l 2>/dev/null | grep -v "openlist.*update"; echo "$cron_time $SCRIPT_PATH update >/dev/null 2>&1") | crontab -
+            # 构造要写入 crontab 的命令行，保留 GH_PROXY 环境变量（如果用户设置）
+            if [ -n "$cron_gh_proxy" ]; then
+                # 将 GH_PROXY 导出到 crontab 环境并把输出写入日志文件
+                cron_cmd="GH_PROXY=$cron_gh_proxy $SCRIPT_PATH update >> /var/log/openlist_update.log 2>&1"
+            else
+                cron_cmd="$SCRIPT_PATH update >> /var/log/openlist_update.log 2>&1"
+            fi
+
+            # 添加到 crontab（先移除旧条目）
+            (crontab -l 2>/dev/null | grep -v "openlist.*update"; echo "$cron_time $cron_cmd") | crontab -
 
             echo -e "${GREEN_COLOR}定时更新已启用${RES}"
             echo -e "${GREEN_COLOR}更新时间：$cron_time${RES}"
@@ -812,22 +831,32 @@ UPDATE() {
 
     echo -e "${GREEN_COLOR}开始更新 OpenList ...${RES}"
 
-    # 询问是否使用代理
-    echo -e "${GREEN_COLOR}是否使用 GitHub 代理？（默认无代理）${RES}"
-    echo -e "${GREEN_COLOR}代理地址必须为 https 开头，斜杠 / 结尾 ${RES}"
-    echo -e "${GREEN_COLOR}例如：https://ghproxy.com/ ${RES}"
-    read -p "请输入代理地址或直接按 Enter 继续: " proxy_input
+    # 询问是否使用代理（仅在交互式终端时询问）
+    if [ -t 0 ]; then
+        echo -e "${GREEN_COLOR}是否使用 GitHub 代理？（默认无代理）${RES}"
+        echo -e "${GREEN_COLOR}代理地址必须为 https 开头，斜杠 / 结尾 ${RES}"
+        echo -e "${GREEN_COLOR}例如：https://ghproxy.com/ ${RES}"
+        read -p "请输入代理地址或直接按 Enter 继续: " proxy_input
 
-    # 如果用户输入了代理地址，则使用代理拼接下载链接
-    if [ -n "$proxy_input" ]; then
-        GH_PROXY="$proxy_input"
-        GH_DOWNLOAD_URL="${GH_PROXY}https://github.com/OpenListTeam/OpenList/releases/download"
-        echo -e "${GREEN_COLOR}已使用代理地址: $GH_PROXY${RES}"
+        # 如果用户输入了代理地址，则使用代理拼接下载链接
+        if [ -n "$proxy_input" ]; then
+            GH_PROXY="$proxy_input"
+            GH_DOWNLOAD_URL="${GH_PROXY}https://github.com/OpenListTeam/OpenList/releases/download"
+            echo -e "${GREEN_COLOR}已使用代理地址: $GH_PROXY${RES}"
+        else
+            # 如果不需要代理，直接使用默认链接
+            GH_PROXY=""
+            GH_DOWNLOAD_URL="https://github.com/OpenListTeam/OpenList/releases/download"
+            echo -e "${GREEN_COLOR}使用默认 GitHub 地址进行下载${RES}"
+        fi
     else
-        # 如果不需要代理，直接使用默认链接
-        GH_PROXY=""
-        GH_DOWNLOAD_URL="https://github.com/OpenListTeam/OpenList/releases/download"
-        echo -e "${GREEN_COLOR}使用默认 GitHub 地址进行下载${RES}"
+        # 非交互模式（例如后台或 cron）使用环境变量 GH_PROXY（如果设置）或默认下载地址
+        if [ -n "$GH_PROXY" ]; then
+            GH_DOWNLOAD_URL="${GH_PROXY}https://github.com/OpenListTeam/OpenList/releases/download"
+        else
+            GH_PROXY=""
+            GH_DOWNLOAD_URL="https://github.com/OpenListTeam/OpenList/releases/download"
+        fi
     fi
 
     # 获取真实版本信息
